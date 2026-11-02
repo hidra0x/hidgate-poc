@@ -167,6 +167,7 @@ A panic alone, including the `setPowerState` timeout, is **not** control.
 
 ## Direct links
 
+- Master plan: [`master-plan.md`](master-plan.md)
 - AppleJPEG selector audit: [`applejpeg-methods.md`](applejpeg-methods.md)
 - Jailbreak project built on this research: https://github.com/nenasevartem70-cmyk/hidra
 - Apple security content, iOS 26.4 / iPadOS 26.4 (CVE-2026-20687):
