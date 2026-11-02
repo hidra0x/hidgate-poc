@@ -7,8 +7,9 @@ userclient methods** for a direct read/write primitive.
 
 ## Dispatch table
 
-The public PoC describes the `AppleJPEGDriverUserClient` dispatch table
-(IOUserClient2022, 10 entries):
+The confirmed 18.7.2 table is in
+[`applejpeg-dispatch.md`](applejpeg-dispatch.md). The public PoC describes
+the `AppleJPEGDriverUserClient` dispatch table (IOUserClient2022):
 
 | Selector | Method | Struct in/out | Notes |
 |---|---|---|---|

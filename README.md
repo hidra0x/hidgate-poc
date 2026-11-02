@@ -320,6 +320,7 @@ Instant preview without enabling Pages:
 - Kernel control ladder: [`docs/kernel-control.md`](docs/kernel-control.md)
 - Final test matrix (T1–T9): [`docs/final-tests.md`](docs/final-tests.md)
 - AppleJPEG CVE notes: [`docs/applejpeg-cve-2026-20687.md`](docs/applejpeg-cve-2026-20687.md)
+- AppleJPEG dispatch table: [`docs/applejpeg-dispatch.md`](docs/applejpeg-dispatch.md)
 - AppleJPEG panic analysis: [`docs/applejpeg-panic-2026-10-30.md`](docs/applejpeg-panic-2026-10-30.md)
 - Full experiment log: [`docs/experiment-log.md`](docs/experiment-log.md)
 - IOHID panic analysis: [`docs/panic-analysis.md`](docs/panic-analysis.md)
