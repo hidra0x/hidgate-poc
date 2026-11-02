@@ -315,6 +315,7 @@ Instant preview without enabling Pages:
 ### Repository docs
 
 - Master plan: [`docs/master-plan.md`](docs/master-plan.md)
+- `newjail.ipa` analysis: [`docs/newjail-ipa-analysis.md`](docs/newjail-ipa-analysis.md)
 - MOON chain: [`docs/moon-chain.md`](docs/moon-chain.md)
 - Data-only control plan: [`docs/data-only-plan.md`](docs/data-only-plan.md)
 - Kernel control ladder: [`docs/kernel-control.md`](docs/kernel-control.md)
