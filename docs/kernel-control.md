@@ -128,6 +128,10 @@ same-type `JpegRequest` reclaim cannot change it. Pointing it at a fake
 object requires a valid signed vtable pointer for that object's address,
 which needs either a PAC oracle or a kernel read. Neither exists yet.
 
+The post-write strategy is **data-only**: avoid PAC-protected function
+pointers, do not patch kernel text, and modify process/credential/AMFI/MACF
+data instead. See [`data-only-plan.md`](data-only-plan.md).
+
 ## Next gates
 
 1. **Leave the node stale on purpose.** Close the userclient while a sync

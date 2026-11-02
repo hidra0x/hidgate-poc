@@ -315,6 +315,7 @@ Instant preview without enabling Pages:
 ### Repository docs
 
 - MOON chain: [`docs/moon-chain.md`](docs/moon-chain.md)
+- Data-only control plan: [`docs/data-only-plan.md`](docs/data-only-plan.md)
 - Kernel control ladder: [`docs/kernel-control.md`](docs/kernel-control.md)
 - Final test matrix (T1–T9): [`docs/final-tests.md`](docs/final-tests.md)
 - AppleJPEG CVE notes: [`docs/applejpeg-cve-2026-20687.md`](docs/applejpeg-cve-2026-20687.md)
