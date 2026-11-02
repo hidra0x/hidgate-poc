@@ -194,9 +194,36 @@ Full details:
 
 ## Final tests
 
-The reproducible test matrix (T1–T8), exact log lines, pass/fail criteria,
+The reproducible test matrix (T1–T9), exact log lines, pass/fail criteria,
 and log-collection steps are in
 [`docs/final-tests.md`](docs/final-tests.md).
+
+## Open-source PoC — MOON
+
+The runnable concept PoC is **MOON** in
+[`PoC/applejpeg/`](PoC/applejpeg/). It is a small, readable app that:
+
+1. opens `AppleJPEGDriver` from the app sandbox;
+2. validates the `0x58` decode ABI;
+3. primes five async decodes and closes the connection;
+4. asks you to open Camera, which triggers the deferred UAF.
+
+Build on macOS:
+
+```bash
+make applejpeg
+# or: ./PoC/applejpeg/build.sh
+```
+
+Output: `build/MOONProbe-unsigned.ipa`. The
+[`build-applejpeg-poc`](.github/workflows/build-applejpeg.yml) GitHub Actions
+workflow builds the same IPA and uploads it as the
+`moonprobe-unsigned-ipa` artifact.
+
+Run it only on a spare device. Expected result: a kernel panic in
+`AppleJPEGDriver` with `far=0x308` after Camera opens. Full instructions:
+[`PoC/applejpeg/README.md`](PoC/applejpeg/README.md). The chain name and
+stages are documented in [`docs/moon-chain.md`](docs/moon-chain.md).
 
 ## Build
 
@@ -287,13 +314,15 @@ Instant preview without enabling Pages:
 
 ### Repository docs
 
+- MOON chain: [`docs/moon-chain.md`](docs/moon-chain.md)
 - Kernel control ladder: [`docs/kernel-control.md`](docs/kernel-control.md)
-- Final test matrix (T1–T8): [`docs/final-tests.md`](docs/final-tests.md)
+- Final test matrix (T1–T9): [`docs/final-tests.md`](docs/final-tests.md)
 - AppleJPEG CVE notes: [`docs/applejpeg-cve-2026-20687.md`](docs/applejpeg-cve-2026-20687.md)
 - AppleJPEG panic analysis: [`docs/applejpeg-panic-2026-10-30.md`](docs/applejpeg-panic-2026-10-30.md)
 - Full experiment log: [`docs/experiment-log.md`](docs/experiment-log.md)
 - IOHID panic analysis: [`docs/panic-analysis.md`](docs/panic-analysis.md)
 - AppleJPEG sources: [`experiments/applejpeg/`](experiments/applejpeg/)
+- Open-source runnable PoC: [`PoC/applejpeg/`](PoC/applejpeg/)
 
 ### CVE-2026-20687 (AppleJPEGDriver)
 
