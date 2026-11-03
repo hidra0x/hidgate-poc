@@ -551,38 +551,50 @@ static void runMachTests(void) {
     kern_return_t kr = vm_allocate(task, &addr, 0x4000, VM_FLAGS_ANYWHERE);
     logLine(@"vm_allocate -> 0x%x addr=0x%llx", kr, (unsigned long long)addr);
 
+    if (addr == 0) {
+        logLine(@"Mach VM: vm_allocate failed; aborting memory-entry tests");
+        return;
+    }
+    logLine(@"Mach VM: valid base address = 0x%llx", (unsigned long long)addr);
+
     uint64_t sizes[] = {
-        0xffffffffffffffffULL,
-        0x8000000000000000ULL,
+        0x1000ULL,          // control: fits in the 0x4000 allocation
+        0x4000ULL,          // control: exact allocation
+        0x8000ULL,          // larger than the allocation
+        0x100000000ULL,     // 4 GiB
         0x7fffffffffffffffULL,
-        0x100000000ULL,
-        0x4000ULL,
+        0x8000000000000000ULL,
+        0xffffffffffffffffULL,
         0x0ULL,
     };
     for (size_t i = 0; i < sizeof(sizes) / sizeof(sizes[0]); i++) {
         memory_object_size_t size = (memory_object_size_t)sizes[i];
         mach_port_t object = MACH_PORT_NULL;
-        crumb(@"START make_memory_entry size=0x%llx", (unsigned long long)size);
-        kr = mach_make_memory_entry_64(task, &size, 0, VM_PROT_READ | VM_PROT_WRITE,
-                                       &object, MACH_PORT_NULL);
+        crumb(@"START make_memory_entry addr=0x%llx size=0x%llx",
+              (unsigned long long)addr, (unsigned long long)size);
+        kr = mach_make_memory_entry_64(task, &size, (memory_object_offset_t)addr,
+                                       VM_PROT_READ | VM_PROT_WRITE, &object, MACH_PORT_NULL);
         crumb(@"DONE make_memory_entry kr=0x%x object=%u size=0x%llx",
               kr, object, (unsigned long long)size);
-        logLine(@"mach_make_memory_entry_64(0x%llx) -> kr=0x%x object=%u size=0x%llx",
-                (unsigned long long)sizes[i], kr, object, (unsigned long long)size);
+        logLine(@"mach_make_memory_entry_64(addr=0x%llx, size=0x%llx) -> kr=0x%x object=%u size=0x%llx",
+                (unsigned long long)addr, (unsigned long long)sizes[i], kr, object,
+                (unsigned long long)size);
         if (object != MACH_PORT_NULL) mach_port_deallocate(task, object);
     }
 
-    uint64_t offsets[] = {0, 1, 0x1000, 0x4000, 0xffffffffffffffffULL};
-    for (size_t i = 0; i < sizeof(offsets) / sizeof(offsets[0]); i++) {
+    uint64_t deltas[] = {0, 1, 0x1000, 0x4000, 0x8000, 0xfffffffffffff000ULL};
+    for (size_t i = 0; i < sizeof(deltas) / sizeof(deltas[0]); i++) {
+        mach_vm_address_t a = addr + deltas[i];
         memory_object_size_t size = 0x4000;
         mach_port_t object = MACH_PORT_NULL;
-        crumb(@"START make_memory_entry offset=0x%llx", (unsigned long long)offsets[i]);
-        kr = mach_make_memory_entry_64(task, &size, (memory_object_offset_t)offsets[i],
+        crumb(@"START make_memory_entry addr=0x%llx delta=0x%llx",
+              (unsigned long long)addr, (unsigned long long)deltas[i]);
+        kr = mach_make_memory_entry_64(task, &size, (memory_object_offset_t)a,
                                        VM_PROT_READ | VM_PROT_WRITE, &object, MACH_PORT_NULL);
-        crumb(@"DONE make_memory_entry offset=0x%llx kr=0x%x object=%u",
-              (unsigned long long)offsets[i], kr, object);
-        logLine(@"mach_make_memory_entry_64(offset=0x%llx, size=0x4000) -> kr=0x%x object=%u",
-                (unsigned long long)offsets[i], kr, object);
+        crumb(@"DONE make_memory_entry addr=0x%llx delta=0x%llx kr=0x%x object=%u",
+              (unsigned long long)addr, (unsigned long long)deltas[i], kr, object);
+        logLine(@"mach_make_memory_entry_64(addr=0x%llx+0x%llx, size=0x4000) -> kr=0x%x object=%u",
+                (unsigned long long)addr, (unsigned long long)deltas[i], kr, object);
         if (object != MACH_PORT_NULL) mach_port_deallocate(task, object);
     }
 
