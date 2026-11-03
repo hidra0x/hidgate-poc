@@ -378,6 +378,11 @@ required entitlement.
   therefore rejects the dimensions that would overflow the AVE size math.
   The default VT path returns `st=0` only because it falls back to the
   software `h264.rtvc` encoder.
+- The malformed IOSurface frame test (v0.8) is closed: `IOSurfaceCreate`
+  returns NULL for 46341x46341, 65535x65535, -1x-1, 8192x8192 and
+  16384x16384 when `kIOSurfaceAllocSize` is 0x4000. Only the 1920x1080
+  control is created. AVE cannot be reached through a tiny-allocation
+  huge surface.
 
 ### Targeted scan v0.7
 
@@ -419,9 +424,15 @@ option that calls into `_necp_set_socket_attribute`. It is directly
 reachable from an app with `setsockopt(fd, SOL_SOCKET, 0x1131, buf, len)`.
 
 This makes it a candidate for the CVE-2026-28972 class ("out-of-bounds
-write" in the kernel, fixed in 18.7.9). CandProbe v1.0 tests AF_INET,
-AF_INET6 and AF_UNIX sockets with lengths 0..4096. A panic or an unexpected
-success is the signal; the breadcrumb records the family and length.
+write" in the kernel, fixed in 18.7.9).
+
+Dynamic v1.0 result: `SO_RESOLVER_SIGNATURE` returns success (`r=0`,
+`errno=0`) for AF_INET and AF_INET6 for every length 0..4096, while AF_UNIX
+returns `EINVAL`. That is the first app-reachable syscall path that accepts
+an attacker-controlled length and reports success. v1.1 sweeps lengths up to
+1 MiB on SOCK_STREAM and SOCK_DGRAM with a 4-byte length header. A panic or
+a length-dependent failure is the CVE-2026-28972 signal; the breadcrumb
+records family, type and length.
 
 ### Next empirical step
 

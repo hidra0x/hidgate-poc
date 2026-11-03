@@ -792,34 +792,61 @@ static void runTargetedScan(void) {
 #endif
 
 static void runResolverSignatureProbe(void) {
-    logLine(@"=== SO_RESOLVER_SIGNATURE probe ===");
-    int families[] = {AF_INET, AF_INET6, AF_UNIX};
-    const char *familyNames[] = {"AF_INET", "AF_INET6", "AF_UNIX"};
-    size_t lens[] = {0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096};
+    logLine(@"=== SO_RESOLVER_SIGNATURE probe (length sweep) ===");
+    int families[] = {AF_INET, AF_INET6};
+    const char *familyNames[] = {"AF_INET", "AF_INET6"};
+    int types[] = {SOCK_STREAM, SOCK_DGRAM};
+    const char *typeNames[] = {"SOCK_STREAM", "SOCK_DGRAM"};
+    size_t lens[] = {0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048,
+                     4096, 8192, 16384, 32768, 65536, 131072, 262144,
+                     524288, 1048576};
 
     for (size_t fi = 0; fi < sizeof(families) / sizeof(families[0]); fi++) {
-        int fd = socket(families[fi], SOCK_STREAM, 0);
-        logLine(@"socket(%s) -> %d errno=%d", familyNames[fi], fd, errno);
-        if (fd < 0) continue;
+        for (size_t ti = 0; ti < sizeof(types) / sizeof(types[0]); ti++) {
+            int fd = socket(families[fi], types[ti], 0);
+            logLine(@"socket(%s, %s) -> %d errno=%d",
+                    familyNames[fi], typeNames[ti], fd, errno);
+            if (fd < 0) continue;
 
-        for (size_t li = 0; li < sizeof(lens) / sizeof(lens[0]); li++) {
-            size_t len = lens[li];
-            uint8_t *buf = calloc(1, len ? len : 1);
-            if (!buf) continue;
-            memset(buf, 0x41, len);
-            crumb(@"START SO_RESOLVER_SIGNATURE family=%s len=%zu",
-                  familyNames[fi], len);
-            errno = 0;
-            int r = setsockopt(fd, SOL_SOCKET, SO_RESOLVER_SIGNATURE, buf, (socklen_t)len);
-            int e = errno;
-            crumb(@"DONE SO_RESOLVER_SIGNATURE family=%s len=%zu r=%d errno=%d",
-                  familyNames[fi], len, r, e);
-            logLine(@"  %s len=%zu -> r=%d errno=%d", familyNames[fi], len, r, e);
-            free(buf);
-            usleep(10 * 1000);
+            for (size_t li = 0; li < sizeof(lens) / sizeof(lens[0]); li++) {
+                size_t len = lens[li];
+                uint8_t *buf = calloc(1, len ? len : 1);
+                if (!buf) continue;
+                memset(buf, 0x41, len);
+                // Also give the handler a plausible 4-byte length header at
+                // the start; the rest stays a controlled pattern.
+                if (len >= 4) {
+                    uint32_t hdr = (uint32_t)len;
+                    memcpy(buf, &hdr, sizeof(hdr));
+                }
+                crumb(@"START SO_RESOLVER_SIGNATURE %s/%s len=%zu",
+                      familyNames[fi], typeNames[ti], len);
+                errno = 0;
+                int r = setsockopt(fd, SOL_SOCKET, SO_RESOLVER_SIGNATURE, buf,
+                                   (socklen_t)len);
+                int e = errno;
+                crumb(@"DONE SO_RESOLVER_SIGNATURE %s/%s len=%zu r=%d errno=%d",
+                      familyNames[fi], typeNames[ti], len, r, e);
+                logLine(@"  %s/%s len=%zu -> r=%d errno=%d",
+                        familyNames[fi], typeNames[ti], len, r, e);
+                free(buf);
+                usleep(10 * 1000);
+            }
+            close(fd);
         }
-        close(fd);
     }
+
+    // AF_UNIX control: the 18.7.2 family check rejects it.
+    int ux = socket(AF_UNIX, SOCK_STREAM, 0);
+    logLine(@"socket(AF_UNIX, SOCK_STREAM) -> %d errno=%d", ux, errno);
+    if (ux >= 0) {
+        uint8_t buf[64] = {0};
+        errno = 0;
+        int r = setsockopt(ux, SOL_SOCKET, SO_RESOLVER_SIGNATURE, buf, sizeof(buf));
+        logLine(@"  AF_UNIX len=64 -> r=%d errno=%d", r, errno);
+        close(ux);
+    }
+
     logLine(@"=== SO_RESOLVER_SIGNATURE probe done ===");
     logLine(@"HIDRA_STAGE9_DONE SO_RESOLVER_SIGNATURE probe finished");
 }
