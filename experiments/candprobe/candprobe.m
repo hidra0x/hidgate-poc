@@ -385,23 +385,38 @@ static void vtOutputCallback(void *refCon, void *sourceFrameRefCon, OSStatus sta
     logLine(@"VT callback status=%d flags=0x%x sample=%p", (int)status, (unsigned)infoFlags, sampleBuffer);
 }
 
-static void runVTOne(NSString *label, int32_t w, int32_t h, CMVideoCodecType codec, OSType pf) {
-    logLine(@"VT %@ codec=%u %dx%d pf=0x%x", label, (unsigned)codec, w, h, (unsigned)pf);
+static NSString *gAVEEncoderID = nil;
+
+static void runVTOne(NSString *label, int32_t w, int32_t h, CMVideoCodecType codec, OSType pf,
+                     BOOL useAVE) {
+    logLine(@"VT %@ codec=%u %dx%d pf=0x%x forceAVE=%d", label, (unsigned)codec, w, h,
+            (unsigned)pf, useAVE ? 1 : 0);
     NSDictionary *attrs = @{
         (__bridge NSString *)kCVPixelBufferPixelFormatTypeKey: @(pf),
         (__bridge NSString *)kCVPixelBufferWidthKey: @(w),
         (__bridge NSString *)kCVPixelBufferHeightKey: @(h),
         (__bridge NSString *)kCVPixelBufferIOSurfacePropertiesKey: @{},
     };
+    NSDictionary *spec = nil;
+    if (useAVE && gAVEEncoderID.length) {
+        spec = @{(__bridge NSString *)kVTVideoEncoderSpecification_EncoderID: gAVEEncoderID};
+    }
 
     VTCompressionSessionRef session = NULL;
-    crumb(@"START VT create %@ codec=%u %dx%d", label, (unsigned)codec, w, h);
-    OSStatus st = VTCompressionSessionCreate(NULL, w, h, codec, NULL,
+    crumb(@"START VT create %@ codec=%u %dx%d ave=%d", label, (unsigned)codec, w, h, useAVE ? 1 : 0);
+    OSStatus st = VTCompressionSessionCreate(NULL, w, h, codec,
+                                             (__bridge CFDictionaryRef)spec,
                                              (__bridge CFDictionaryRef)attrs, NULL,
                                              vtOutputCallback, NULL, &session);
     crumb(@"DONE VT create %@ st=%d session=%p", label, (int)st, session);
     logLine(@"VT create -> %d session=%p", (int)st, session);
     if (st != noErr || session == NULL) return;
+
+    CFTypeRef encoderID = NULL;
+    if (VTSessionCopyProperty(session, kVTCompressionPropertyKey_EncoderID, NULL, &encoderID) == noErr && encoderID) {
+        logLine(@"VT encoderID=%@", encoderID);
+        CFRelease(encoderID);
+    }
 
     VTSessionSetProperty(session, kVTCompressionPropertyKey_RealTime, kCFBooleanFalse);
     VTSessionSetProperty(session, kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse);
@@ -444,19 +459,53 @@ static void runVTTests(void) {
         {"wide-1Gx2", 0x40000000, 2},
     };
 
+    CFArrayRef encList = NULL;
+    if (VTCopyVideoEncoderList(NULL, &encList) == noErr && encList) {
+        for (NSDictionary *d in (__bridge NSArray *)encList) {
+            NSString *eid = d[(__bridge NSString *)kVTVideoEncoderList_EncoderID];
+            NSString *name = d[(__bridge NSString *)kVTVideoEncoderList_EncoderName];
+            NSNumber *hw = d[(__bridge NSString *)kVTVideoEncoderList_IsHardwareAccelerated];
+            NSNumber *codec = d[(__bridge NSString *)kVTVideoEncoderList_CodecType];
+            logLine(@"ENC id=%@ name=%@ hw=%@ codec=0x%x", eid, name, hw,
+                    codec.unsignedIntValue);
+            if ((codec.unsignedIntValue == kCMVideoCodecType_H264) &&
+                ([eid.lowercaseString containsString:@"ave"] ||
+                 [name.lowercaseString containsString:@"ave"])) {
+                gAVEEncoderID = eid;
+            }
+        }
+        CFRelease(encList);
+    }
+    logLine(@"AVE encoder ID = %@", gAVEEncoderID ?: @"(not found)");
+
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
         runVTOne([NSString stringWithUTF8String:cases[i].name], cases[i].w, cases[i].h,
-                 kCMVideoCodecType_H264, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange);
+                 kCMVideoCodecType_H264, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange, NO);
         usleep(300 * 1000);
     }
     runVTOne(@"h264-bgra-control", 1920, 1080, kCMVideoCodecType_H264,
-             kCVPixelFormatType_32BGRA);
+             kCVPixelFormatType_32BGRA, NO);
     runVTOne(@"h264-bgra-neg", -1, -1, kCMVideoCodecType_H264,
-             kCVPixelFormatType_32BGRA);
+             kCVPixelFormatType_32BGRA, NO);
     runVTOne(@"hevc-control", 1920, 1080, kCMVideoCodecType_HEVC,
-             kCVPixelFormatType_420YpCbCr8BiPlanarFullRange);
+             kCVPixelFormatType_420YpCbCr8BiPlanarFullRange, NO);
     runVTOne(@"hevc-neg", -1, -1, kCMVideoCodecType_HEVC,
-             kCVPixelFormatType_420YpCbCr8BiPlanarFullRange);
+             kCVPixelFormatType_420YpCbCr8BiPlanarFullRange, NO);
+
+    if (gAVEEncoderID.length) {
+        // Force the AVE encoder. If create fails here, the huge sizes never
+        // reached AppleAVE2 even though the default session succeeded.
+        runVTOne(@"ave-control", 1920, 1080, kCMVideoCodecType_H264,
+                 kCVPixelFormatType_420YpCbCr8BiPlanarFullRange, YES);
+        runVTOne(@"ave-area-46341", 46341, 46341, kCMVideoCodecType_H264,
+                 kCVPixelFormatType_420YpCbCr8BiPlanarFullRange, YES);
+        runVTOne(@"ave-area-65535", 65535, 65535, kCMVideoCodecType_H264,
+                 kCVPixelFormatType_420YpCbCr8BiPlanarFullRange, YES);
+        runVTOne(@"ave-wide-1Gx2", 0x40000000, 2, kCMVideoCodecType_H264,
+                 kCVPixelFormatType_420YpCbCr8BiPlanarFullRange, YES);
+    } else {
+        logLine(@"AVE encoder not in list; forced pass skipped");
+    }
     logLine(@"=== VT tests done ===");
 }
 
