@@ -230,17 +230,34 @@ static NSUInteger enumerateIOKit(BOOL tryOpen) {
 // ---------------------------------------------------------------------------
 
 static io_connect_t openAVE(void) {
+    io_service_t svc = MACH_PORT_NULL;
     io_iterator_t iter = MACH_PORT_NULL;
     CFMutableDictionaryRef match = IOServiceMatching("AppleAVE2Driver");
     kern_return_t kr = IOServiceGetMatchingServices(MACH_PORT_NULL, match, &iter);
-    if (kr != KERN_SUCCESS || iter == MACH_PORT_NULL) {
-        logLine(@"AVE: no AppleAVE2Driver (kr=0x%x)", kr);
-        return MACH_PORT_NULL;
+    if (kr == KERN_SUCCESS && iter != MACH_PORT_NULL) {
+        svc = IOIteratorNext(iter);
+        IOObjectRelease(iter);
     }
-    io_service_t svc = IOIteratorNext(iter);
-    IOObjectRelease(iter);
     if (svc == MACH_PORT_NULL) {
-        logLine(@"AVE: iterator empty");
+        // Fallback: enumerate all services and match the class name.
+        match = IOServiceMatching("IOService");
+        kr = IOServiceGetMatchingServices(MACH_PORT_NULL, match, &iter);
+        if (kr == KERN_SUCCESS && iter != MACH_PORT_NULL) {
+            io_service_t s;
+            while ((s = IOIteratorNext(iter)) != MACH_PORT_NULL) {
+                NSString *cls = ioClassName(s);
+                if ([cls rangeOfString:@"AVE" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+                    svc = s;
+                    logLine(@"AVE: fallback match class=%@", cls);
+                    break;
+                }
+                IOObjectRelease(s);
+            }
+            IOObjectRelease(iter);
+        }
+    }
+    if (svc == MACH_PORT_NULL) {
+        logLine(@"AVE: no AppleAVE2 service found");
         return MACH_PORT_NULL;
     }
     io_connect_t conn = MACH_PORT_NULL;
