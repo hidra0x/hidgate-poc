@@ -10,6 +10,9 @@
 #import <mach/vm_map.h>
 #import <os/log.h>
 #import <sys/utsname.h>
+#import <sys/socket.h>
+#import <netinet/in.h>
+#import <errno.h>
 #import <unistd.h>
 #import <stdarg.h>
 #import <stdint.h>
@@ -777,6 +780,51 @@ static void runTargetedScan(void) {
 }
 
 // ---------------------------------------------------------------------------
+// SO_RESOLVER_SIGNATURE probe
+//
+// 18.7.9 changed _sosetoptlock; the SO_RESOLVER_SIGNATURE (0x1131) path
+// reaches NECP. The option is app-reachable through setsockopt. Test the
+// old 18.7.2 length/family handling with a breadcrumb before every call.
+// ---------------------------------------------------------------------------
+
+#ifndef SO_RESOLVER_SIGNATURE
+#define SO_RESOLVER_SIGNATURE 0x1131
+#endif
+
+static void runResolverSignatureProbe(void) {
+    logLine(@"=== SO_RESOLVER_SIGNATURE probe ===");
+    int families[] = {AF_INET, AF_INET6, AF_UNIX};
+    const char *familyNames[] = {"AF_INET", "AF_INET6", "AF_UNIX"};
+    size_t lens[] = {0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096};
+
+    for (size_t fi = 0; fi < sizeof(families) / sizeof(families[0]); fi++) {
+        int fd = socket(families[fi], SOCK_STREAM, 0);
+        logLine(@"socket(%s) -> %d errno=%d", familyNames[fi], fd, errno);
+        if (fd < 0) continue;
+
+        for (size_t li = 0; li < sizeof(lens) / sizeof(lens[0]); li++) {
+            size_t len = lens[li];
+            uint8_t *buf = calloc(1, len ? len : 1);
+            if (!buf) continue;
+            memset(buf, 0x41, len);
+            crumb(@"START SO_RESOLVER_SIGNATURE family=%s len=%zu",
+                  familyNames[fi], len);
+            errno = 0;
+            int r = setsockopt(fd, SOL_SOCKET, SO_RESOLVER_SIGNATURE, buf, (socklen_t)len);
+            int e = errno;
+            crumb(@"DONE SO_RESOLVER_SIGNATURE family=%s len=%zu r=%d errno=%d",
+                  familyNames[fi], len, r, e);
+            logLine(@"  %s len=%zu -> r=%d errno=%d", familyNames[fi], len, r, e);
+            free(buf);
+            usleep(10 * 1000);
+        }
+        close(fd);
+    }
+    logLine(@"=== SO_RESOLVER_SIGNATURE probe done ===");
+    logLine(@"HIDRA_STAGE9_DONE SO_RESOLVER_SIGNATURE probe finished");
+}
+
+// ---------------------------------------------------------------------------
 // Mach VM edge cases
 // ---------------------------------------------------------------------------
 
@@ -900,6 +948,7 @@ static void runMachTests(void) {
         @[@"6. Mach VM edge cases", @"btnMach"],
         @[@"7. Targeted media/GPU/ANE scan", @"btnTargeted"],
         @[@"8. VT malformed IOSurface frame", @"btnMalformed"],
+        @[@"9. SO_RESOLVER_SIGNATURE probe", @"btnResolver"],
         @[@"Share log", @"btnShare"],
         @[@"Clear log", @"btnClear"],
     ];
@@ -1040,6 +1089,12 @@ static void runMachTests(void) {
 - (void)btnMalformed {
     [self runOnQueue:@"malformed IOSurface" block:^{
         runVTMalformedSurface();
+    }];
+}
+
+- (void)btnResolver {
+    [self runOnQueue:@"SO_RESOLVER_SIGNATURE" block:^{
+        runResolverSignatureProbe();
     }];
 }
 

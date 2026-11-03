@@ -411,17 +411,30 @@ No memory-entry overflow was observed. The 18.7.10 validation block may
 cover a different `vm_object`/`parent_entry` pattern, not the simple
 huge-size case.
 
+### SO_RESOLVER_SIGNATURE / NECP lead
+
+The 18.7.8 → 18.7.9 diff includes `_sosetoptlock` (0x1100 → 0x1114 bytes).
+The option table maps `0x1131` to `SO_RESOLVER_SIGNATURE`, a `SOL_SOCKET`
+option that calls into `_necp_set_socket_attribute`. It is directly
+reachable from an app with `setsockopt(fd, SOL_SOCKET, 0x1131, buf, len)`.
+
+This makes it a candidate for the CVE-2026-28972 class ("out-of-bounds
+write" in the kernel, fixed in 18.7.9). CandProbe v1.0 tests AF_INET,
+AF_INET6 and AF_UNIX sockets with lengths 0..4096. A panic or an unexpected
+success is the signal; the breadcrumb records the family and length.
+
 ### Next empirical step
 
-1. v0.8 keeps a small 1920x1080 hardware session and feeds it a
-   CVPixelBuffer backed by an IOSurface with huge reported dimensions
-   (46341, 65535, -1, 8192, 16384) but a tiny `kIOSurfaceAllocSize`
-   (0x4000). If AVE uses the frame/surface dimensions instead of the
-   session dimensions, this is the last path to `AVE_CalcBufSizeOf*`.
-2. If v0.8 fails, treat AVE as **not app-reachable on 18.7.2**: raw is
+1. Run CandProbe v1.0 button 9 (`SO_RESOLVER_SIGNATURE`) first. It tests
+   the `_sosetoptlock`/NECP path with AF_INET, AF_INET6 and AF_UNIX and
+   lengths 0..4096. A panic is the CVE-2026-28972 signal.
+2. Run button 8 (malformed IOSurface frame). If AVE uses the frame/surface
+   dimensions instead of the session dimensions, this is the last path to
+   `AVE_CalcBufSizeOf*`.
+3. If both fail, treat AVE as **not app-reachable on 18.7.2**: raw is
    `kIOReturnNotPermitted`, VT hardware rejects the overflow dimensions,
    and the software fallback is a different encoder.
-3. Pivot to the reachable surfaces:
+4. Pivot to the reachable surfaces:
    - `AppleJPEGDriver` — confirmed UAF; convert the stale queue node into
      a write/overlap (MOON / `jpegclose7`).
    - `AppleM2ScalerCSCDriver` / IOSurfaceAccelerator — real ABI, leak
