@@ -52,6 +52,24 @@ The jailbreak project built on this research is
 **[Hidra](https://github.com/hidra0x/hidra)** — target device,
 architecture, milestones, and the current release estimate live there.
 
+## 18.7.2 candidate audit and CandProbe
+
+The 18.7.2 → 18.7.10 binary audit found the strongest app-reachable
+kernel-code-execution candidate so far: **AVEVideoEncoder /
+CVE-2026-64747** in `AppleAVE2` 803.73.1. The 18.7.10 update (803.73.3)
+adds overflow checks to the `AVE_CalcBufSizeOf*` cluster and an explicit
+`width >= 0 && height >= 0 && iPixelProduct <= 2147483647` check. The
+18.7.2 driver accepts the open parameters without that check.
+
+- Full matrix: [`docs/kernel-candidates-18.7.2.md`](docs/kernel-candidates-18.7.2.md)
+- App source: [`experiments/candprobe/`](experiments/candprobe/)
+- Release: [CandProbe v0.1](https://github.com/hidra0x/hidgate-poc/releases/tag/candprobe-v0.1)
+
+CandProbe independently tests VideoToolbox, the raw `AppleAVE2Driver`
+selector 1, the 18.7.2 selector table, media/GPU/HID userclients, and the
+Mach/VM edge cases. Every risky call leaves a fsynced breadcrumb in
+`Documents/candprobe-state.txt`.
+
 ## IOHID path — CVE-2026-28992
 
 ### Status
