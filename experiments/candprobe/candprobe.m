@@ -572,6 +572,20 @@ static void runMachTests(void) {
         if (object != MACH_PORT_NULL) mach_port_deallocate(task, object);
     }
 
+    uint64_t offsets[] = {0, 1, 0x1000, 0x4000, 0xffffffffffffffffULL};
+    for (size_t i = 0; i < sizeof(offsets) / sizeof(offsets[0]); i++) {
+        memory_object_size_t size = 0x4000;
+        mach_port_t object = MACH_PORT_NULL;
+        crumb(@"START make_memory_entry offset=0x%llx", (unsigned long long)offsets[i]);
+        kr = mach_make_memory_entry_64(task, &size, (memory_object_offset_t)offsets[i],
+                                       VM_PROT_READ | VM_PROT_WRITE, &object, MACH_PORT_NULL);
+        crumb(@"DONE make_memory_entry offset=0x%llx kr=0x%x object=%u",
+              (unsigned long long)offsets[i], kr, object);
+        logLine(@"mach_make_memory_entry_64(offset=0x%llx, size=0x4000) -> kr=0x%x object=%u",
+                (unsigned long long)offsets[i], kr, object);
+        if (object != MACH_PORT_NULL) mach_port_deallocate(task, object);
+    }
+
     if (addr) {
         kr = vm_protect(task, addr, 0x4000, 0, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY);
         logLine(@"vm_protect(COPY) -> 0x%x", kr);

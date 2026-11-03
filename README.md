@@ -63,7 +63,7 @@ adds overflow checks to the `AVE_CalcBufSizeOf*` cluster and an explicit
 
 - Full matrix: [`docs/kernel-candidates-18.7.2.md`](docs/kernel-candidates-18.7.2.md)
 - App source: [`experiments/candprobe/`](experiments/candprobe/)
-- Release: [CandProbe v0.3](https://github.com/hidra0x/hidgate-poc/releases/tag/candprobe-v0.3)
+- Release: [CandProbe v0.4](https://github.com/hidra0x/hidgate-poc/releases/tag/candprobe-v0.4)
 
 CandProbe independently tests VideoToolbox, the raw `AppleAVE2Driver`
 selector 1, the 18.7.2 selector table, media/GPU/HID userclients, and the
