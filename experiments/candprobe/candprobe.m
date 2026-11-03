@@ -862,18 +862,15 @@ static void runVMProtectProbe(void) {
         0,
         VM_PROT_READ,
         VM_PROT_WRITE,
-        VM_PROT_EXECUTE,
         VM_PROT_READ | VM_PROT_WRITE,
-        VM_PROT_READ | VM_PROT_EXECUTE,
-        VM_PROT_WRITE | VM_PROT_EXECUTE,
-        VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE,
         VM_PROT_COPY,
         VM_PROT_READ | VM_PROT_COPY,
         VM_PROT_WRITE | VM_PROT_COPY,
-        0xff,
     };
-    uint64_t sizes[] = {0, 1, 0x1000, 0x4000, 0x8000, 0x10000,
-                        0x20000, 0x100000000ULL};
+    // Keep every range inside the 0x10000 allocation. A 4 GiB range
+    // reaches into QuartzCore/UI mappings and kills the app, which is a
+    // local self-DoS, not a kernel primitive.
+    uint64_t sizes[] = {0, 1, 0x1000, 0x4000, 0x8000, 0x10000};
 
     for (size_t pi = 0; pi < sizeof(prots) / sizeof(prots[0]); pi++) {
         for (size_t si = 0; si < sizeof(sizes) / sizeof(sizes[0]); si++) {
@@ -894,6 +891,7 @@ static void runVMProtectProbe(void) {
             logLine(@"  prot=0x%02x size=0x%-10llx -> kr=0x%x errno=%d",
                     prots[pi], (unsigned long long)size, kr, e);
             vm_deallocate(task, addr, 0x10000);
+            usleep(20 * 1000);
         }
     }
 

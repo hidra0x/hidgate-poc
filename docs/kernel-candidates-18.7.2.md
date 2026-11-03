@@ -434,6 +434,23 @@ length-overflow hypothesis for CVE-2026-28972 is **closed**. The option may
 still be worth testing with a valid signature blob and a NECP-triggering
 connection, but it is no longer the primary candidate.
 
+### vm_protect first run
+
+The first vm_protect matrix used a 4 GiB size and `VM_PROT_EXECUTE`/`0xff`.
+The app crashed in userland, not the kernel:
+
+```
+EXC_BAD_ACCESS / KERN_PROTECTION_FAILURE at 0x1019dc000
+QuartzCore: CA::Render::Shmem::copy_image
+```
+
+The 4 GiB range covered QuartzCore/UI mappings and removed their access.
+This is a local self-DoS, not a kernel bug. v1.3 keeps every range inside a
+0x10000 allocation and tests only 0/R/W/RW/COPY combinations. The
+vm_protect candidate is still open, but it must be tested in a controlled
+mapping; a huge range will kill the app before it can reach the kernel
+primitive.
+
 ### Next empirical step
 
 1. Run CandProbe v1.0 button 9 (`SO_RESOLVER_SIGNATURE`) first. It tests
