@@ -135,6 +135,14 @@ The presence of `mach_make_memory_entry_internal`, `vm_map_protect`,
 `posix_spawn` in the same patch window is why the Mach/VM cluster is the
 first place to look for CVE-2026-43724 ("write kernel memory").
 
+A concrete lead: 18.7.10 inserts a new `0x48`-byte outlined block at
+`0xfffffff007f30fa0` (`mach_make_memory_entry_internal + 0x70`). It checks a
+`vm_object` size/flag against a `vm_map_entry` offset
+(`[x1,#0x10] & (-1 << [x0,#0x34])`) and branches into the entry
+creation/deletion paths. This is exactly the kind of validation that would
+be added for a memory-entry size/offset bug, and it is the first function
+CandProbe's `Mach VM` edge-case test should stress.
+
 ### 18.7.8 → 18.7.9 (34 changed blocks, 29 single-function blocks mapped)
 
 - `_mount_common`, `fs_snapshot`
@@ -265,14 +273,27 @@ exactly two functions:
 
 | Old | Size | New | Size | Note |
 |---|---|---|---|---|
-| `0xfffffff008df8300` | `0x5ec` | `0xfffffff008df9e50` | `0x5c8` | large request/queue path |
-| `0xfffffff008dfa704` | `0x11c` | `0xfffffff008dfc230` | `0x150` | external-method wrapper |
+| `0xfffffff008df8300` | `0x5ec` | `0xfffffff008df9e50` | `0x5c8` | `AppleJPEGDriver::queue_io_gated(JpegRequest *)` |
+| `0xfffffff008dfa704` | `0x11c` | `0xfffffff008dfc230` | `0x150` | wrapper referencing `sleepCommandGate` |
+
+The first function is confirmed by its own assert strings:
+
+```
+IOReturn AppleJPEGDriver::queue_io_gated(JpegRequest *)
+failed to pass the request validation return 0x%x
+failed to pass the request setup return 0x%x
+```
+
+The 18.7.10 version of `queue_io_gated` adds early `cbz` null/state checks
+before the request is queued and replaces the old `w2 = 10000` wait path
+with a zero-timeout path. That is the 7.6.10 fix for the deferred
+`JpegRequest` lifetime.
 
 The known 18.7.2 panic is a read UAF in the OSArray iterator:
 `pc=0x8df3418`, `ldrb w12,[x12,#0x308]`, `x12=0`, after a deferred
 `JpegRequest` is freed by the 10 s sync timeout. MOON already demonstrates
-the reachable UAF. The 7.6.10 fix is small and consistent with adding a
-validity check around the request/queue object, not with a full rewrite.
+the reachable UAF. The fix is in the exact queue function that contains the
+stale-node walk, so CVE-2026-20687 is confirmed as the AppleJPEG bug.
 
 Status: **read UAF confirmed; write/overlap not yet obtained.** Continue
 with `jpegclose7`/`jpegmethods2` and the MOON test matrix. The AVE path is
