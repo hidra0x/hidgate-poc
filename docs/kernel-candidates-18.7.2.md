@@ -373,6 +373,25 @@ required entitlement.
 - v0.7 selects the hardware H264 encoder by
   `kVTVideoEncoderList_IsHardwareAccelerated`, forces it for the huge
   sizes, and calls `VTCopySupportedPropertyDictionaryForEncoder` first.
+- The forced hardware query returns `st=-12902` (`kVTParameterErr`) for
+  46341x46341, 65535x65535 and 0x40000000x2. The hardware H264 encoder
+  therefore rejects the dimensions that would overflow the AVE size math.
+  The default VT path returns `st=0` only because it falls back to the
+  software `h264.rtvc` encoder.
+
+### Targeted scan v0.7
+
+| Service | Result |
+|---|---|
+| `AppleM2ScalerCSCDriver` t=0/1/2 | all selectors 0xe00002c2 (bad argument) or 0xe00002c7 (unsupported) |
+| `H11ANEIn` t=1 | all selectors 0xe00002c2 |
+| `AGXAcceleratorG11P_B0` t=1 | sel 6 / in 0x10 → 0x1; sel 9 / in 0x58+ → 0xe00002be (`kIOReturnNoResources`) |
+| `AppleJPEGDriver` t=0/1/2 | sel 4 / in 0x1000 → 0xe00002bc (`kIOReturnError`); sel 5 / in 0x1000 → 0xe00002cc (`kIOReturnCannotLock`) |
+| `IOSurfaceRoot` t=0 | all selectors 0xe00002c2 |
+
+The zero-struct scan found live selectors but no success/leak. These
+services need their real ABI (IOSurfaceAccelerator API, ANE command
+structures, the AppleJPEG 0x58 request, AGX context structures).
 
 ### Mach memory entry
 
@@ -394,11 +413,18 @@ huge-size case.
 
 ### Next empirical step
 
-1. Force the hardware H264 encoder for `4096`…`65535` and read the `SUP`
-   lines. If the hardware encoder rejects the size, the VT path cannot
-   reach the AVE `AVE_CalcBufSizeOf*` code.
-2. Run the targeted scan on `AppleM2ScalerCSCDriver`,
-   `H11ANEIn`, `AGXAcceleratorG11P_B0`, `AppleJPEGDriver`,
-   `IOSurfaceRoot` and `AppleAVD`.
-3. Keep AppleJPEG as the reachable UAF; convert the stale queue node into
-   a write/overlap.
+1. v0.8 keeps a small 1920x1080 hardware session and feeds it a
+   CVPixelBuffer backed by an IOSurface with huge reported dimensions
+   (46341, 65535, -1, 8192, 16384) but a tiny `kIOSurfaceAllocSize`
+   (0x4000). If AVE uses the frame/surface dimensions instead of the
+   session dimensions, this is the last path to `AVE_CalcBufSizeOf*`.
+2. If v0.8 fails, treat AVE as **not app-reachable on 18.7.2**: raw is
+   `kIOReturnNotPermitted`, VT hardware rejects the overflow dimensions,
+   and the software fallback is a different encoder.
+3. Pivot to the reachable surfaces:
+   - `AppleJPEGDriver` — confirmed UAF; convert the stale queue node into
+     a write/overlap (MOON / `jpegclose7`).
+   - `AppleM2ScalerCSCDriver` / IOSurfaceAccelerator — real ABI, leak
+     CVE-2026-64760.
+   - `AGXAcceleratorG11P_B0` — sel 6/9 are live; needs context structs.
+   - `H11ANEIn` — newjail ANE path; needs command structures.

