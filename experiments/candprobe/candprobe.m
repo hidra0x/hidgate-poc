@@ -446,9 +446,13 @@ static void runVTTests(void) {
 
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
         runVTOne([NSString stringWithUTF8String:cases[i].name], cases[i].w, cases[i].h,
-                 kCMVideoCodecType_H264, kCVPixelFormatType_32BGRA);
+                 kCMVideoCodecType_H264, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange);
         usleep(300 * 1000);
     }
+    runVTOne(@"h264-bgra-control", 1920, 1080, kCMVideoCodecType_H264,
+             kCVPixelFormatType_32BGRA);
+    runVTOne(@"h264-bgra-neg", -1, -1, kCMVideoCodecType_H264,
+             kCVPixelFormatType_32BGRA);
     runVTOne(@"hevc-control", 1920, 1080, kCMVideoCodecType_HEVC,
              kCVPixelFormatType_420YpCbCr8BiPlanarFullRange);
     runVTOne(@"hevc-neg", -1, -1, kCMVideoCodecType_HEVC,
