@@ -12,6 +12,10 @@
 #import <sys/utsname.h>
 #import <sys/socket.h>
 #import <netinet/in.h>
+#import <spawn.h>
+#import <signal.h>
+#import <fcntl.h>
+#import <sys/wait.h>
 #import <errno.h>
 #import <unistd.h>
 #import <stdarg.h>
@@ -852,6 +856,78 @@ static void runResolverSignatureProbe(void) {
 }
 
 // ---------------------------------------------------------------------------
+// posix_spawn attr/file_actions matrix (CVE-2026-43724 candidate)
+//
+// 18.7.10 adds a check at posix_spawn+0x2844 that skips a helper when two
+// spawn flags are zero. Test NULL / valid attr and file_actions combinations
+// with a real child executable in the app bundle.
+// ---------------------------------------------------------------------------
+
+static void runPosixSpawnProbe(void) {
+    logLine(@"=== posix_spawn attr/file_actions probe ===");
+    NSString *exe = [[NSBundle mainBundle] executablePath];
+    const char *path = exe.UTF8String;
+    char *argv[] = {(char *)path, "--hidra-child", NULL};
+    char *envp[] = {NULL};
+    logLine(@"child path: %@", exe);
+
+    posix_spawnattr_t attr;
+    int ar = posix_spawnattr_init(&attr);
+    logLine(@"posix_spawnattr_init -> %d", ar);
+    if (ar == 0) {
+        short flags = POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK |
+                      POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_RESETIDS;
+        int fr = posix_spawnattr_setflags(&attr, flags);
+        sigset_t set;
+        sigemptyset(&set);
+        sigaddset(&set, SIGUSR1);
+        int sr = posix_spawnattr_setsigdefault(&attr, &set);
+        int mr = posix_spawnattr_setsigmask(&attr, &set);
+        int pr = posix_spawnattr_setpgroup(&attr, 1);
+        logLine(@"attr setflags=%d sigdef=%d sigmask=%d pgroup=%d", fr, sr, mr, pr);
+    }
+
+    posix_spawn_file_actions_t fa;
+    int far = posix_spawn_file_actions_init(&fa);
+    logLine(@"posix_spawn_file_actions_init -> %d", far);
+    if (far == 0) {
+        int r1 = posix_spawn_file_actions_addclose(&fa, 0);
+        int r2 = posix_spawn_file_actions_adddup2(&fa, 1, 2);
+        int r3 = posix_spawn_file_actions_addopen(&fa, 3, "/dev/null", O_RDONLY, 0);
+        logLine(@"file_actions close=%d dup2=%d open=%d", r1, r2, r3);
+    }
+
+    struct { const char *name; posix_spawn_file_actions_t *fa; posix_spawnattr_t *attr; } cases[] = {
+        {"null/null", NULL, NULL},
+        {"fa/null", far == 0 ? &fa : NULL, NULL},
+        {"null/attr", NULL, ar == 0 ? &attr : NULL},
+        {"fa/attr", far == 0 ? &fa : NULL, ar == 0 ? &attr : NULL},
+    };
+
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        pid_t pid = 0;
+        errno = 0;
+        crumb(@"START posix_spawn %s", cases[i].name);
+        int r = posix_spawn(&pid, path, cases[i].fa, cases[i].attr, argv, envp);
+        int e = errno;
+        crumb(@"DONE posix_spawn %s r=%d errno=%d pid=%d", cases[i].name, r, e, pid);
+        logLine(@"  posix_spawn %s -> r=%d errno=%d pid=%d",
+                cases[i].name, r, e, pid);
+        if (r == 0 && pid > 0) {
+            usleep(50 * 1000);
+            kill(pid, SIGKILL);
+            waitpid(pid, NULL, 0);
+        }
+        usleep(50 * 1000);
+    }
+
+    if (far == 0) posix_spawn_file_actions_destroy(&fa);
+    if (ar == 0) posix_spawnattr_destroy(&attr);
+    logLine(@"=== posix_spawn probe done ===");
+    logLine(@"HIDRA_STAGE11_DONE posix_spawn probe finished");
+}
+
+// ---------------------------------------------------------------------------
 // vm_map_protect edge cases (CVE-2026-43724 candidate)
 // ---------------------------------------------------------------------------
 
@@ -1038,6 +1114,7 @@ static void runMachTests(void) {
         @[@"8. VT malformed IOSurface frame", @"btnMalformed"],
         @[@"9. SO_RESOLVER_SIGNATURE probe", @"btnResolver"],
         @[@"10. vm_protect edge cases", @"btnVMProtect"],
+        @[@"11. posix_spawn attr matrix", @"btnPosixSpawn"],
         @[@"Share log", @"btnShare"],
         @[@"Clear log", @"btnClear"],
     ];
@@ -1193,6 +1270,12 @@ static void runMachTests(void) {
     }];
 }
 
+- (void)btnPosixSpawn {
+    [self runOnQueue:@"posix_spawn" block:^{
+        runPosixSpawnProbe();
+    }];
+}
+
 - (void)btnShare {
     flushPending();
     if (!gLogPath) return;
@@ -1228,6 +1311,9 @@ static void runMachTests(void) {
 
 int main(int argc, char *argv[]) {
     @autoreleasepool {
+        if (argc > 1 && strcmp(argv[1], "--hidra-child") == 0) {
+            return 0;
+        }
         return UIApplicationMain(argc, argv, nil, NSStringFromClass([AppDelegate class]));
     }
 }

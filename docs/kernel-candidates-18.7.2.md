@@ -451,6 +451,22 @@ vm_protect candidate is still open, but it must be tested in a controlled
 mapping; a huge range will kill the app before it can reach the kernel
 primitive.
 
+### vm_protect v1.3 result
+
+The safe matrix (7 protections, 6 sizes inside a 0x10000 allocation,
+set_maximum 0/1, unaligned subrange) returned `kr=0` for every call. No
+panic and no app crash. The simple private-mapping `vm_protect` candidate is
+closed; a shared/COW/submap-specific test would be needed to go further.
+
+### posix_spawn lead
+
+The 18.7.9 -> 18.7.10 diff of `posix_spawn` (0x22f8 -> 0x2308 bytes) adds a
+check at `posix_spawn+0x2844`: it skips a helper call when two spawn flags
+are zero. CandProbe v1.4 tests NULL/NULL, file_actions/NULL, NULL/attr and
+file_actions/attr, with SIGDEF/SIGMASK/PGROUP/RESETIDS and close/dup2/open
+file actions. The child is the app binary with `--hidra-child`, so the code
+signature matches the parent. A panic is the CVE-2026-43724 signal.
+
 ### Next empirical step
 
 1. Run CandProbe v1.0 button 9 (`SO_RESOLVER_SIGNATURE`) first. It tests
