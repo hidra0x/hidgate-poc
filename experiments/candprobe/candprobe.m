@@ -387,10 +387,30 @@ static void vtOutputCallback(void *refCon, void *sourceFrameRefCon, OSStatus sta
 
 static NSString *gAVEEncoderID = nil;
 
+static void logSupported(NSString *label, int32_t w, int32_t h, CMVideoCodecType codec,
+                         BOOL useAVE) {
+    NSDictionary *spec = nil;
+    if (useAVE && gAVEEncoderID.length) {
+        spec = @{(__bridge NSString *)kVTVideoEncoderSpecification_EncoderID: gAVEEncoderID};
+    }
+    CFStringRef supID = NULL;
+    CFDictionaryRef supProps = NULL;
+    crumb(@"START supported %@ %dx%d ave=%d", label, w, h, useAVE ? 1 : 0);
+    OSStatus st = VTCopySupportedPropertyDictionaryForEncoder(
+        w, h, codec, (__bridge CFDictionaryRef)spec, &supID, &supProps);
+    crumb(@"DONE supported %@ %dx%d st=%d", label, w, h, (int)st);
+    logLine(@"SUP %@ %dx%d codec=%u forceAVE=%d -> st=%d id=%@ props=%d",
+            label, w, h, (unsigned)codec, useAVE ? 1 : 0, (int)st,
+            supID ?: (__bridge CFStringRef)@"(nil)", supProps != NULL);
+    if (supID) CFRelease(supID);
+    if (supProps) CFRelease(supProps);
+}
+
 static void runVTOne(NSString *label, int32_t w, int32_t h, CMVideoCodecType codec, OSType pf,
                      BOOL useAVE) {
     logLine(@"VT %@ codec=%u %dx%d pf=0x%x forceAVE=%d", label, (unsigned)codec, w, h,
             (unsigned)pf, useAVE ? 1 : 0);
+    logSupported(label, w, h, codec, useAVE);
     NSDictionary *attrs = @{
         (__bridge NSString *)kCVPixelBufferPixelFormatTypeKey: @(pf),
         (__bridge NSString *)kCVPixelBufferWidthKey: @(w),
@@ -427,10 +447,15 @@ static void runVTOne(NSString *label, int32_t w, int32_t h, CMVideoCodecType cod
     logLine(@"VT prepare -> %d", (int)st);
 
     if (st == noErr) {
+        int32_t fw = 64, fh = 64;
+        if (w > 0 && h > 0 && (int64_t)w * (int64_t)h <= 2048LL * 2048LL) {
+            fw = w;
+            fh = h;
+        }
         CVPixelBufferRef pb = NULL;
         NSDictionary *pbAttrs = @{(__bridge NSString *)kCVPixelBufferIOSurfacePropertiesKey: @{}};
-        CVReturn cv = CVPixelBufferCreate(NULL, 64, 64, pf, (__bridge CFDictionaryRef)pbAttrs, &pb);
-        logLine(@"VT pixelbuffer 64x64 -> %d %p", (int)cv, pb);
+        CVReturn cv = CVPixelBufferCreate(NULL, fw, fh, pf, (__bridge CFDictionaryRef)pbAttrs, &pb);
+        logLine(@"VT pixelbuffer %dx%d -> %d %p", fw, fh, (int)cv, pb);
         if (cv == kCVReturnSuccess && pb) {
             VTEncodeInfoFlags flags = 0;
             crumb(@"START VT encode %@", label);
@@ -454,6 +479,10 @@ static void runVTTests(void) {
         {"neg-1x1080", -1, 1080},
         {"neg-1080x-1", 1080, -1},
         {"int32min-x2", INT32_MIN, 2},
+        {"area-4096", 4096, 4096},
+        {"area-8192", 8192, 8192},
+        {"area-16384", 16384, 16384},
+        {"area-32768", 32768, 32768},
         {"area-46341", 46341, 46341},
         {"area-65535", 65535, 65535},
         {"wide-1Gx2", 0x40000000, 2},
@@ -468,9 +497,9 @@ static void runVTTests(void) {
             NSNumber *codec = d[(__bridge NSString *)kVTVideoEncoderList_CodecType];
             logLine(@"ENC id=%@ name=%@ hw=%@ codec=0x%x", eid, name, hw,
                     codec.unsignedIntValue);
-            if ((codec.unsignedIntValue == kCMVideoCodecType_H264) &&
-                ([eid.lowercaseString containsString:@"ave"] ||
-                 [name.lowercaseString containsString:@"ave"])) {
+            if (codec.unsignedIntValue == kCMVideoCodecType_H264 &&
+                hw.boolValue &&
+                ![eid.lowercaseString containsString:@"rtvc"]) {
                 gAVEEncoderID = eid;
             }
         }
@@ -586,6 +615,64 @@ static void runGenericSelectorScan(void) {
     }
     IOObjectRelease(iter);
     logLine(@"=== generic selector scan done (%lu services) ===", (unsigned long)seen);
+}
+
+// ---------------------------------------------------------------------------
+// Targeted media / GPU / ANE scan
+// ---------------------------------------------------------------------------
+
+static void runTargetedScan(void) {
+    logLine(@"=== targeted media/GPU/ANE scan ===");
+    struct { const char *cls; uint32_t type; const char *why; } targets[] = {
+        {"AppleM2ScalerCSCDriver", 0, "IOSurfaceAccelerator CVE-2026-64760"},
+        {"AppleM2ScalerCSCDriver", 1, "IOSurfaceAccelerator type 1"},
+        {"AppleM2ScalerCSCDriver", 2, "IOSurfaceAccelerator type 2"},
+        {"H11ANEIn", 1, "ANE / newjail surface"},
+        {"AGXAcceleratorG11P_B0", 1, "IOGPUFamily"},
+        {"AppleJPEGDriver", 0, "CVE-2026-20687"},
+        {"AppleJPEGDriver", 1, "CVE-2026-20687 type 1"},
+        {"AppleJPEGDriver", 2, "CVE-2026-20687 type 2"},
+        {"IOSurfaceRoot", 0, "IOSurface KVA / leak surface"},
+        {"AppleAVD", 0, "AppleAVD 865 -> 867"},
+    };
+
+    for (size_t t = 0; t < sizeof(targets) / sizeof(targets[0]); t++) {
+        NSString *want = [NSString stringWithUTF8String:targets[t].cls];
+        io_iterator_t iter = MACH_PORT_NULL;
+        CFMutableDictionaryRef match = IOServiceMatching("IOService");
+        kern_return_t kr = IOServiceGetMatchingServices(MACH_PORT_NULL, match, &iter);
+        if (kr != KERN_SUCCESS || iter == MACH_PORT_NULL) {
+            logLine(@"targeted: iterator kr=0x%x", kr);
+            return;
+        }
+        io_service_t found = MACH_PORT_NULL;
+        io_service_t svc;
+        while ((svc = IOIteratorNext(iter)) != MACH_PORT_NULL) {
+            NSString *cls = ioClassName(svc);
+            if ([cls isEqualToString:want] ||
+                [cls rangeOfString:want options:NSCaseInsensitiveSearch].location != NSNotFound) {
+                found = svc;
+                break;
+            }
+            IOObjectRelease(svc);
+        }
+        IOObjectRelease(iter);
+        if (found == MACH_PORT_NULL) {
+            logLine(@"TARGET %@ type=%u: service not found (%s)", want, targets[t].type, targets[t].why);
+            continue;
+        }
+        io_connect_t conn = MACH_PORT_NULL;
+        kr = IOServiceOpen(found, mach_task_self(), targets[t].type, &conn);
+        logLine(@"TARGET %@ type=%u open -> 0x%x conn=%u (%s)",
+                want, targets[t].type, kr, conn, targets[t].why);
+        if (kr == KERN_SUCCESS && conn != MACH_PORT_NULL) {
+            probeConnect(want, targets[t].type, conn);
+            IOServiceClose(conn);
+        }
+        IOObjectRelease(found);
+        usleep(100 * 1000);
+    }
+    logLine(@"=== targeted scan done ===");
 }
 
 // ---------------------------------------------------------------------------
@@ -708,6 +795,7 @@ static void runMachTests(void) {
         @[@"4. AppleAVE2 selector scan", @"btnAVESel"],
         @[@"5. Generic media/GPU/HID selector scan", @"btnScan"],
         @[@"6. Mach VM edge cases", @"btnMach"],
+        @[@"7. Targeted media/GPU/ANE scan", @"btnTargeted"],
         @[@"Share log", @"btnShare"],
         @[@"Clear log", @"btnClear"],
     ];
@@ -834,6 +922,12 @@ static void runMachTests(void) {
 - (void)btnMach {
     [self runOnQueue:@"mach VM" block:^{
         runMachTests();
+    }];
+}
+
+- (void)btnTargeted {
+    [self runOnQueue:@"targeted scan" block:^{
+        runTargetedScan();
     }];
 }
 
