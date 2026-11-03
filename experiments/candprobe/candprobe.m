@@ -852,6 +852,69 @@ static void runResolverSignatureProbe(void) {
 }
 
 // ---------------------------------------------------------------------------
+// vm_map_protect edge cases (CVE-2026-43724 candidate)
+// ---------------------------------------------------------------------------
+
+static void runVMProtectProbe(void) {
+    logLine(@"=== vm_protect edge cases ===");
+    mach_port_t task = mach_task_self();
+    int prots[] = {
+        0,
+        VM_PROT_READ,
+        VM_PROT_WRITE,
+        VM_PROT_EXECUTE,
+        VM_PROT_READ | VM_PROT_WRITE,
+        VM_PROT_READ | VM_PROT_EXECUTE,
+        VM_PROT_WRITE | VM_PROT_EXECUTE,
+        VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE,
+        VM_PROT_COPY,
+        VM_PROT_READ | VM_PROT_COPY,
+        VM_PROT_WRITE | VM_PROT_COPY,
+        0xff,
+    };
+    uint64_t sizes[] = {0, 1, 0x1000, 0x4000, 0x8000, 0x10000,
+                        0x20000, 0x100000000ULL};
+
+    for (size_t pi = 0; pi < sizeof(prots) / sizeof(prots[0]); pi++) {
+        for (size_t si = 0; si < sizeof(sizes) / sizeof(sizes[0]); si++) {
+            vm_address_t addr = 0;
+            kern_return_t kr = vm_allocate(task, &addr, 0x10000, VM_FLAGS_ANYWHERE);
+            if (kr != KERN_SUCCESS) {
+                logLine(@"vm_allocate failed kr=0x%x", kr);
+                return;
+            }
+            vm_size_t size = (vm_size_t)sizes[si];
+            crumb(@"START vm_protect prot=0x%x size=0x%llx", prots[pi],
+                  (unsigned long long)size);
+            errno = 0;
+            kr = vm_protect(task, addr, size, 0, prots[pi]);
+            int e = errno;
+            crumb(@"DONE vm_protect prot=0x%x size=0x%llx kr=0x%x",
+                  prots[pi], (unsigned long long)size, kr);
+            logLine(@"  prot=0x%02x size=0x%-10llx -> kr=0x%x errno=%d",
+                    prots[pi], (unsigned long long)size, kr, e);
+            vm_deallocate(task, addr, 0x10000);
+        }
+    }
+
+    // set_maximum=1 and an unaligned address.
+    vm_address_t addr = 0;
+    if (vm_allocate(task, &addr, 0x4000, VM_FLAGS_ANYWHERE) == KERN_SUCCESS) {
+        for (int sm = 0; sm <= 1; sm++) {
+            crumb(@"START vm_protect set_max=%d", sm);
+            kern_return_t kr = vm_protect(task, addr + 1, 0x2000, sm,
+                                          VM_PROT_READ | VM_PROT_WRITE);
+            crumb(@"DONE vm_protect set_max=%d kr=0x%x", sm, kr);
+            logLine(@"  unaligned set_max=%d -> kr=0x%x", sm, kr);
+        }
+        vm_deallocate(task, addr, 0x4000);
+    }
+
+    logLine(@"=== vm_protect edge cases done ===");
+    logLine(@"HIDRA_STAGE10_DONE vm_protect probe finished");
+}
+
+// ---------------------------------------------------------------------------
 // Mach VM edge cases
 // ---------------------------------------------------------------------------
 
@@ -976,6 +1039,7 @@ static void runMachTests(void) {
         @[@"7. Targeted media/GPU/ANE scan", @"btnTargeted"],
         @[@"8. VT malformed IOSurface frame", @"btnMalformed"],
         @[@"9. SO_RESOLVER_SIGNATURE probe", @"btnResolver"],
+        @[@"10. vm_protect edge cases", @"btnVMProtect"],
         @[@"Share log", @"btnShare"],
         @[@"Clear log", @"btnClear"],
     ];
@@ -1122,6 +1186,12 @@ static void runMachTests(void) {
 - (void)btnResolver {
     [self runOnQueue:@"SO_RESOLVER_SIGNATURE" block:^{
         runResolverSignatureProbe();
+    }];
+}
+
+- (void)btnVMProtect {
+    [self runOnQueue:@"vm_protect" block:^{
+        runVMProtectProbe();
     }];
 }
 

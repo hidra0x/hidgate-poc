@@ -426,13 +426,13 @@ reachable from an app with `setsockopt(fd, SOL_SOCKET, 0x1131, buf, len)`.
 This makes it a candidate for the CVE-2026-28972 class ("out-of-bounds
 write" in the kernel, fixed in 18.7.9).
 
-Dynamic v1.0 result: `SO_RESOLVER_SIGNATURE` returns success (`r=0`,
-`errno=0`) for AF_INET and AF_INET6 for every length 0..4096, while AF_UNIX
-returns `EINVAL`. That is the first app-reachable syscall path that accepts
-an attacker-controlled length and reports success. v1.1 sweeps lengths up to
-1 MiB on SOCK_STREAM and SOCK_DGRAM with a 4-byte length header. A panic or
-a length-dependent failure is the CVE-2026-28972 signal; the breadcrumb
-records family, type and length.
+Dynamic result (v1.0/v1.1): `SO_RESOLVER_SIGNATURE` returns success
+(`r=0`, `errno=0`) for AF_INET and AF_INET6, SOCK_STREAM and SOCK_DGRAM,
+for every length 0..4096. Lengths 8192 and above return `EINVAL`; AF_UNIX
+returns `EINVAL`. The 4096-byte cap is present in 18.7.2, so the simple
+length-overflow hypothesis for CVE-2026-28972 is **closed**. The option may
+still be worth testing with a valid signature blob and a NECP-triggering
+connection, but it is no longer the primary candidate.
 
 ### Next empirical step
 
