@@ -8,7 +8,7 @@
   <img alt="Platform" src="https://img.shields.io/badge/iOS-18.7.2%20%2F%20A12-0b1219?style=for-the-badge&labelColor=101a24&color=58a6ff">
   <img alt="Status" src="https://img.shields.io/badge/status-UAF%20%2F%20controlled%20reclaim-ff9f43?style=for-the-badge&labelColor=1a140b">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-27c93f?style=for-the-badge&labelColor=0b1219">
-  <a href="https://github.com/nenasevartem70-cmyk/hidgate-poc/actions/workflows/build.yml"><img alt="Build" src="https://github.com/nenasevartem70-cmyk/hidgate-poc/actions/workflows/build.yml/badge.svg"></a>
+  <a href="https://github.com/hidra0x/hidgate-poc/actions/workflows/build.yml"><img alt="Build" src="https://github.com/hidra0x/hidgate-poc/actions/workflows/build.yml/badge.svg"></a>
 </p>
 
 # iOS 18.7.2 / A12 — kernel control research
@@ -49,7 +49,7 @@ fake vtable. Read the full reasoning in
 [`docs/kernel-control.md`](docs/kernel-control.md).
 
 The jailbreak project built on this research is
-**[Hidra](https://github.com/nenasevartem70-cmyk/hidra)** — target device,
+**[Hidra](https://github.com/hidra0x/hidra)** — target device,
 architecture, milestones, and the current release estimate live there.
 
 ## IOHID path — CVE-2026-28992
@@ -304,11 +304,11 @@ To enable it:
 
 After that the page is available at:
 
-**https://nenasevartem70-cmyk.github.io/hidgate-poc/**
+**https://hidra0x.github.io/hidgate-poc/**
 
 Instant preview without enabling Pages:
 
-**https://raw.githack.com/nenasevartem70-cmyk/hidgate-poc/main/docs/index.html**
+**https://raw.githack.com/hidra0x/hidgate-poc/main/docs/index.html**
 
 ## Direct links
 

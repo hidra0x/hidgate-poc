@@ -61,4 +61,4 @@ reuse it, and aims for a **native** primitive. Four letters, four gates.
 - [AppleJPEG CVE notes](applejpeg-cve-2026-20687.md)
 - [AppleJPEG selector audit](applejpeg-methods.md)
 - [Open-source PoC](../PoC/applejpeg/)
-- [Hidra jailbreak project](https://github.com/nenasevartem70-cmyk/hidra)
+- [Hidra jailbreak project](https://github.com/hidra0x/hidra)

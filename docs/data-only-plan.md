@@ -114,4 +114,4 @@ structures), not in text.
 - [Kernel control ladder](kernel-control.md)
 - [MOON chain](moon-chain.md)
 - [AppleJPEG selector audit](applejpeg-methods.md)
-- [Hidra architecture](https://github.com/nenasevartem70-cmyk/hidra/blob/main/docs/architecture.md)
+- [Hidra architecture](https://github.com/hidra0x/hidra/blob/main/docs/architecture.md)
