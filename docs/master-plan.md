@@ -16,6 +16,8 @@ bootstrap. No kernel text patching, no fake PAC pointers.
 | `sel6`/`sel4` (0xDA0/0x1000) | reachable, wrong input layout |
 | Kernel write/read primitive | **not yet** |
 | PAC / PPL / KTRR bypass | **not reached** |
+| 18.7.2 candidate audit | **done** — [`kernel-candidates-18.7.2.md`](kernel-candidates-18.7.2.md) |
+| CandProbe app | **built** — [`../experiments/candprobe/`](../experiments/candprobe/) |
 
 The current panic is a **read UAF**: `far=0x308`, `x12=0`,
 `x5/x6=0xfeedface...` in the AppleJPEG queue helper. It is not a PAC/PPL
@@ -106,7 +108,14 @@ controlled field write first.
 
 ## 4. Track B — alternate kexts
 
-If Track A stays read-only after the A3/A4 experiments, audit:
+If Track A stays read-only after the A3/A4 experiments, the 18.7.2 →
+18.7.10 audit already gives the strongest alternate: **AppleAVE2
+CVE-2026-64747**. The 18.7.10 diff adds `AVE_CalcBufSizeOf*` overflow
+checks and a `width >= 0 && height >= 0 && iPixelProduct <= 2147483647`
+check. CandProbe exercises both the public VideoToolbox path and the raw
+`AppleAVE2Driver` selector 1.
+
+Other alternates:
 
 - `IOSurfaceAccelerator` (`accelprobe2`);
 - `AppleAVE2` / media decoder userclients;
