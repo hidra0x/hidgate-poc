@@ -8,6 +8,7 @@
 #import <mach/mach.h>
 #import <mach/mach_port.h>
 #import <mach/vm_map.h>
+#import <os/log.h>
 #import <sys/utsname.h>
 #import <unistd.h>
 #import <stdarg.h>
@@ -38,6 +39,7 @@
 
 static UITextView *gLogView = nil;
 static UILabel *gStatusLabel = nil;
+static os_log_t gOSLog = NULL;
 static NSString *gLogPath = nil;
 static NSFileHandle *gLogFile = nil;
 static NSLock *gLogLock = nil;
@@ -76,6 +78,9 @@ static void logLine(NSString *fmt, ...) {
     va_end(ap);
 
     NSString *line = [NSString stringWithFormat:@"[%@] %@\n", stamp(), msg];
+    if (gOSLog) {
+        os_log(gOSLog, "%{public}@", msg);
+    }
     @synchronized (gPendingLog) {
         [gPendingLog appendString:line];
     }
@@ -222,6 +227,8 @@ static NSUInteger enumerateIOKit(BOOL tryOpen) {
     IOObjectRelease(iter);
     logLine(@"enumerate: total=%lu interesting=%lu opened=%lu", (unsigned long)count,
             (unsigned long)interesting, (unsigned long)opened);
+    logLine(@"HIDRA_STAGE0_DONE total=%lu interesting=%lu opened=%lu",
+            (unsigned long)count, (unsigned long)interesting, (unsigned long)opened);
     return count;
 }
 
@@ -338,6 +345,7 @@ static void runAVEProbes(void) {
     aveOpenPreset(conn, @"neg-v2", -1, -1, 2);
     IOServiceClose(conn);
     logLine(@"=== AVE raw probes done ===");
+    logLine(@"HIDRA_STAGE3_DONE raw AVE probe finished");
 }
 
 static void runAVESelectorScan(void) {
@@ -536,6 +544,7 @@ static void runVTTests(void) {
         logLine(@"AVE encoder not in list; forced pass skipped");
     }
     logLine(@"=== VT tests done ===");
+    logLine(@"HIDRA_STAGE2_DONE VT/AVE probe finished");
 }
 
 // ---------------------------------------------------------------------------
@@ -626,6 +635,7 @@ static void runVTMalformedSurface(void) {
     VTCompressionSessionInvalidate(session);
     CFRelease(session);
     logLine(@"=== malformed IOSurface frame done ===");
+    logLine(@"HIDRA_STAGE8_DONE malformed IOSurface probe finished");
 }
 
 // ---------------------------------------------------------------------------
@@ -763,6 +773,7 @@ static void runTargetedScan(void) {
         usleep(100 * 1000);
     }
     logLine(@"=== targeted scan done ===");
+    logLine(@"HIDRA_STAGE7_DONE targeted media/GPU/ANE scan finished");
 }
 
 // ---------------------------------------------------------------------------
@@ -830,6 +841,7 @@ static void runMachTests(void) {
         vm_deallocate(task, addr, 0x4000);
     }
     logLine(@"=== Mach VM edge cases done ===");
+    logLine(@"HIDRA_STAGE6_DONE Mach VM probe finished");
 }
 
 // ---------------------------------------------------------------------------
@@ -850,6 +862,7 @@ static void runMachTests(void) {
     gLogLock = [[NSLock alloc] init];
     gPendingLog = [NSMutableString new];
     gWorkQueue = dispatch_queue_create("candprobe.work", DISPATCH_QUEUE_SERIAL);
+    gOSLog = os_log_create("com.hidra.agent", "stage");
     newLogFile();
 
     UILabel *title = [[UILabel alloc] init];
@@ -939,6 +952,8 @@ static void runMachTests(void) {
 
 - (void)logMatrix {
     logLine(@"CandProbe starting");
+    logLine(@"HIDRA_AGENT_UP bundle=com.example.hidgate4 model=%@ ios=%@",
+            [[UIDevice currentDevice] model], [[UIDevice currentDevice] systemVersion]);
     logLine(@"device=%@ ios=%@", [[UIDevice currentDevice] model], [[UIDevice currentDevice] systemVersion]);
     logLine(@"=== 18.7.2 kernel candidate matrix (fixed in 18.7.3–18.7.10) ===");
     logLine(@"CVE-2026-64747  AVEVideoEncoder / AppleAVE2  -> app may execute code with kernel privileges");
