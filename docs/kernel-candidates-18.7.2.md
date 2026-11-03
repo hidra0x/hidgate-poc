@@ -338,3 +338,67 @@ integer-overflow/buffer-overflow class.
 
 A panic is a result, not a failure: the breadcrumb tells us which
 service/selector/input size reached the kernel.
+
+## 9. Dynamic results on the spare XR (2026-11-03)
+
+### IOKit reachability
+
+`IOServiceOpen` results from the 18.7.2 device:
+
+| Service | Types opened | Note |
+|---|---|---|
+| `AppleJPEGDriver` | 0, 1, 2 | reachable; CVE-2026-20687 |
+| `AppleM2ScalerCSCDriver` | 0, 1, 2 | IOSurfaceAccelerator surface |
+| `AGXAcceleratorG11P_B0` | 1 | GPU |
+| `H11ANEIn` | 1 | ANE / newjail surface |
+| `IOSurfaceRoot` | 0 | IOSurface KVA |
+| `AppleAVE2Driver` | none | `IOServiceOpen` returns `0xe00002e2` (`kIOReturnNotPermitted`) for types 0–7 |
+| `IODARTMapper` / `AppleSPUHIDDriver` | none | `0xe00002c2` / `0xe00002c1` |
+
+The direct raw `AppleAVE2Driver` path is blocked for a sandboxed app. AVE
+can only be reached through `mediaserverd` / VideoToolbox, which has the
+required entitlement.
+
+### VideoToolbox / AVE
+
+- Control `1920x1080`: encoder ID
+  `com.apple.videotoolbox.videoencoder.h264`; `prepare`/`encode` succeed
+  and the callback returns a sample buffer.
+- `46341x46341`, `65535x65535`, `0x40000000x2`: encoder ID
+  `com.apple.videotoolbox.videoencoder.h264.rtvc` (software fallback);
+  the 64x64 frame callback returns `-12902` (`kVTParameterErr`). The huge
+  sizes do **not** reach AppleAVE2.
+- Negative dimensions: `VTCompressionSessionCreate` returns `-12902`
+  before any encoder is selected.
+- v0.7 selects the hardware H264 encoder by
+  `kVTVideoEncoderList_IsHardwareAccelerated`, forces it for the huge
+  sizes, and calls `VTCopySupportedPropertyDictionaryForEncoder` first.
+
+### Mach memory entry
+
+With a real 0x4000 mapping at `0x10582c000`:
+
+- `size=0x1000/0x4000/0x8000/0x100000000/0x7fff.../0x8000...` → `kr=0`,
+  but the in/out `size` is clamped to `0x4000` (the mapping size).
+- `size=0xffffffffffffffff` and `0` → `kr=0x4`
+  (`KERN_INVALID_ARGUMENT`).
+- `addr+0x0/+0x1/+0x1000` → `kr=0`; `addr+0x4000` → `kr=1`
+  (`KERN_INVALID_ADDRESS`); `addr+0x8000` → `kr=2`
+  (`KERN_PROTECTION_FAILURE`).
+- `addr + 0xfffffffffffff000` wraps to `addr-0x1000` and returns `kr=0`
+  because the previous page is mapped.
+
+No memory-entry overflow was observed. The 18.7.10 validation block may
+cover a different `vm_object`/`parent_entry` pattern, not the simple
+huge-size case.
+
+### Next empirical step
+
+1. Force the hardware H264 encoder for `4096`…`65535` and read the `SUP`
+   lines. If the hardware encoder rejects the size, the VT path cannot
+   reach the AVE `AVE_CalcBufSizeOf*` code.
+2. Run the targeted scan on `AppleM2ScalerCSCDriver`,
+   `H11ANEIn`, `AGXAcceleratorG11P_B0`, `AppleJPEGDriver`,
+   `IOSurfaceRoot` and `AppleAVD`.
+3. Keep AppleJPEG as the reachable UAF; convert the stale queue node into
+   a write/overlap.
